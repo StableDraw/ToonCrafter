@@ -3,6 +3,7 @@
 *.ckpt
 *.safetensors
 .vscode
+*.vs
 __pycache__
 *.egg-info
 
