@@ -117,12 +117,12 @@ class Image2Video():
     def download_model(self):
         REPO_ID = 'Doubiiu/ToonCrafter'
         filename_list = ['model.ckpt']
-        if not os.path.exists('./checkpoints/tooncrafter_'+str(self.resolution[1])+'_interp_v1/'):
-            os.makedirs('./checkpoints/tooncrafter_'+str(self.resolution[1])+'_interp_v1/')
+        if not os.path.exists('./weights/'):
+            os.makedirs('./weights/')
         for filename in filename_list:
-            local_file = os.path.join('./checkpoints/tooncrafter_'+str(self.resolution[1])+'_interp_v1/', filename)
+            local_file = os.path.join('./weights/', filename)
             if not os.path.exists(local_file):
-                hf_hub_download(repo_id=REPO_ID, filename=filename, local_dir='./checkpoints/tooncrafter_'+str(self.resolution[1])+'_interp_v1/', local_dir_use_symlinks=False)
+                hf_hub_download(repo_id=REPO_ID, filename=filename, local_dir='./weights/', local_dir_use_symlinks=False)
     
     def get_latent_z_with_hidden_states(self, model, videos):
         b, c, t, h, w = videos.shape
