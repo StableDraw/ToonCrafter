@@ -18,7 +18,7 @@ class Image2Video():
         self.result_dir = result_dir
         if not os.path.exists(self.result_dir):
             os.mkdir(self.result_dir)
-        ckpt_path='checkpoints/tooncrafter_'+resolution.split('_')[1]+'_interp_v1/model.ckpt'
+        ckpt_path='weights/model.ckpt'
         config_file='configs/inference_'+resolution.split('_')[1]+'_v1.0.yaml'
         config = OmegaConf.load(config_file)
         model_config = config.pop("model", OmegaConf.create())
