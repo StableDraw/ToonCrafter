@@ -214,7 +214,7 @@ Currently, our ToonCrafter can support generating videos of up to 16 frames with
 
 ## ⚙️ Setup
 
-### Install Environment via Anaconda (Recommended)
+### Install Environment (Python 3.12 recommended)
 ```powershell
 pip install -r requirements.txt
 ```
