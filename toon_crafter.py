@@ -5,6 +5,7 @@ import time
 from omegaconf import OmegaConf
 from PIL import Image
 import torch
+import numpy
 from torchvision.utils import make_grid, _log_api_usage_once
 from scripts.evaluation.funcs import load_model_checkpoint, batch_ddim_sampling
 from utils.utils import instantiate_from_config
@@ -13,21 +14,39 @@ from einops import repeat
 import torchvision.transforms as transforms
 from pytorch_lightning import seed_everything
 from einops import rearrange
-import numpy
+
 import av
 
 sys.path.insert(1, os.path.join(sys.path[0], 'lvdm'))
 
 
-def write_video_to_binary(video_array, fps, video_codec = "libx264", options = None, audio_array = None, audio_fps = None, audio_codec = None, audio_options = None):
+def tensor_to_binary_image_list(video_array):
+    """
+    Функция, преобразующая 4D тензор изображений в список бинарных изображений
+    """
+
+    binary_image_list = []
+    for i in range(video_array.size(0)): 
+        image = Image.fromarray(video_array[i, :, :, :].numpy())
+        buf = io.BytesIO()
+        image.save(buf, format = "PNG")
+        b_data = buf.getvalue()
+        image.close
+        binary_image_list.append(b_data)
+
+    return binary_image_list
+
+
+def image_array_to_binary_video(video, fps, video_codec = "libx264", is_image_list = False, options = None, audio_array = None, audio_fps = None, audio_codec = None, audio_options = None):
     """
     Writes a 4d tensor in [T, H, W, C] format in a video file
 
     Args:
-        video_array (Tensor[T, H, W, C]): tensor containing the individual frames,
+        video (Tensor[T, H, W, C]): tensor containing the individual frames or binary image list,
             as a uint8 tensor in [T, H, W, C] format
         fps (Number): video frames per second
         video_codec (str): the name of the video codec, i.e. "libx264", "h264", etc.
+        is_image_list (bool): is input image list or 4d image tensor
         options (Dict): dictionary containing options to be passed into the PyAV video stream
         audio_array (Tensor[C, N]): tensor containing the audio, where C is the number of channels
             and N is the number of samples
@@ -36,7 +55,13 @@ def write_video_to_binary(video_array, fps, video_codec = "libx264", options = N
         audio_options (Dict): dictionary containing options to be passed into the PyAV audio stream
     """
 
-    video_array = torch.as_tensor(video_array, dtype=torch.uint8).numpy()
+    if is_image_list == False:
+        video_array = torch.as_tensor(video, dtype = torch.uint8).numpy()
+    else:
+        video_array = []
+        for frame in video:
+            video_array.append(numpy.asarray(Image.open(io.BytesIO(frame)).convert("RGB")))
+        video_array = numpy.array(video_array)
 
     # PyAV does not support floating point numbers with decimal point
     # and will throw OverflowException in case this is not the case
@@ -98,7 +123,7 @@ def write_video_to_binary(video_array, fps, video_codec = "libx264", options = N
     return binary_video.getbuffer()
 
 
-def postprocess_video(batch_tensors, fps = 10):
+def postprocess_video(batch_tensors, return_video = False, fps = 10):
     # b,samples,c,t,h,w
     n_samples = batch_tensors.shape[1]
     for vid_tensor in batch_tensors:
@@ -109,8 +134,12 @@ def postprocess_video(batch_tensors, fps = 10):
         grid = torch.stack(frame_grids, dim=0) # stack in temporal dim [t, 3, n*h, w]
         grid = (grid + 1.0) / 2.0
         grid = (grid * 255).to(torch.uint8).permute(0, 2, 3, 1)
-        binary_video = write_video_to_binary(grid, fps = fps, video_codec = 'h264', options = {'crf': '10'})
-    return binary_video
+        binary = tensor_to_binary_image_list(grid)
+
+        if return_video == True:
+            binary = image_array_to_binary_video(binary, fps = fps, video_codec = 'h264', is_image_list = True, options = {'crf': '10'})  
+
+    return binary
 
 
 def weights_download(opt):
@@ -142,7 +171,7 @@ def get_latent_z_with_hidden_states(model, videos):
     return z, hidden_states_first_last
 
 
-def animate_images(first_binary_data, second_binary_data, prompt, opt, gpu_num = 1):
+def animate_images(first_binary_data, second_binary_data, prompt, opt, return_video = False, gpu_num = 1):
 
     image = numpy.asarray(Image.open(io.BytesIO(first_binary_data)).convert("RGB"))
     image2 = numpy.asarray(Image.open(io.BytesIO(second_binary_data)).convert("RGB"))
@@ -232,10 +261,7 @@ def animate_images(first_binary_data, second_binary_data, prompt, opt, gpu_num =
         if len(prompt_str) == 0:
             prompt_str = 'empty_prompt'
 
-    binary_video = postprocess_video(batch_samples, fps = opt["save_fps"])
-
-    print(f"Time used: {(time.time() - start):.2f} seconds")
-
+    binary_video = postprocess_video(batch_samples, return_video = return_video, fps = opt["save_fps"])
     torch.cuda.empty_cache()
 
     return binary_video
@@ -254,7 +280,7 @@ if __name__ == "__main__":
         "width": 512, #image width, in pixel space
         "frame_stride": 10, #frame stride control for 256 model (larger->larger motion), FPS control for 512 or 1024 model (smaller->larger motion)
         "unconditional_guidance_scale": 7.5, #prompt classifier-free guidance
-        "seed": 789, #seed for seed_everything
+        "seed": 123, #seed for seed_everything
         "video_length": 16, #inference video length
         "save_fps": 8, #fps for saving
         #not implemeted yet [todo]
@@ -276,12 +302,19 @@ if __name__ == "__main__":
     with open("frame2.png", "rb") as f:
         second_binary_data = f.read()
 
-    prompt = "an anime scene"
+    prompt = "an anime sketch"
+
+    return_video = True #Возвращать видео или список изображений кадров. Если False - будет возвращён список изображений
 
     #weights_download(args) #Необязательная функция. Нужна для загрузки весов после установки
+    torch.cuda.empty_cache()
 
-    binary_video = animate_images(first_binary_data, second_binary_data, prompt, args)
+    binary = animate_images(first_binary_data, second_binary_data, prompt, args, return_video = return_video)
 
-    # Write BytesIO from RAM to file, for testing
-    with open("output.mp4", "wb") as f:
-        f.write(binary_video)
+    if return_video == False:
+        for i, img in enumerate(binary):
+            Image.open(io.BytesIO(img)).save(f"result/{i}.png")
+    else:
+        # Write BytesIO from RAM to file, for testing
+        with open("output.mp4", "wb") as f:
+            f.write(binary)
