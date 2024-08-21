@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 from torchvision.utils import make_grid
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
-from .utils.utils import instantiate_from_config
+from utils.utils import instantiate_from_config
 from lvdm.ema import LitEma
 from lvdm.models.samplers.ddim import DDIMSampler
 from lvdm.distributions import DiagonalGaussianDistribution

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from lvdm.modules.networks.ae_modules import Encoder, Decoder
 from lvdm.distributions import DiagonalGaussianDistribution
-from .utils.utils import instantiate_from_config
+from utils.utils import instantiate_from_config
 
 TIMESTEPS=16
 class AutoencoderKL(pl.LightningModule):

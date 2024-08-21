@@ -1,18 +1,18 @@
 import os, sys, glob
+from tabnanny import verbose
 import numpy as np
 from collections import OrderedDict
 from decord import VideoReader, cpu
 import cv2
-
 import torch
 import torchvision
 sys.path.insert(1, os.path.join(sys.path[0], '..', '..'))
-from lvdm.models.samplers.ddim import DDIMSampler
+from .lvdm.models.samplers.ddim import DDIMSampler
 from einops import rearrange
 
 
 def batch_ddim_sampling(model, cond, noise_shape, n_samples=1, ddim_steps=50, ddim_eta=1.0,\
-                        cfg_scale=1.0, hs=None, temporal_cfg_scale=None, **kwargs):
+                        cfg_scale=1.0, hs=None, temporal_cfg_scale=None, verbose = True, **kwargs):
     ddim_sampler = DDIMSampler(model)
     uncond_type = model.uncond_type
     batch_size = noise_shape[0]
@@ -62,7 +62,7 @@ def batch_ddim_sampling(model, cond, noise_shape, n_samples=1, ddim_steps=50, dd
                                             conditioning=cond,
                                             batch_size=noise_shape[0],
                                             shape=noise_shape[1:],
-                                            verbose=False,
+                                            verbose=verbose,
                                             unconditional_guidance_scale=cfg_scale,
                                             unconditional_conditioning=uc,
                                             eta=ddim_eta,

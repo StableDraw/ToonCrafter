@@ -1,23 +1,28 @@
 import io
-import os
+from os import makedirs
+from os.path import realpath, join, exists
 import sys
 import time
+
 from omegaconf import OmegaConf
 from PIL import Image
 import torch
 import numpy
 from torchvision.utils import make_grid, _log_api_usage_once
-from scripts.evaluation.funcs import load_model_checkpoint, batch_ddim_sampling
-from utils.utils import instantiate_from_config
+from .scripts.evaluation.funcs import load_model_checkpoint, batch_ddim_sampling
+from .utils.utils import instantiate_from_config
 from huggingface_hub import hf_hub_download
 from einops import repeat
 import torchvision.transforms as transforms
 from pytorch_lightning import seed_everything
 from einops import rearrange
-
 import av
 
-sys.path.insert(1, os.path.join(sys.path[0], 'lvdm'))
+file_path = realpath(__file__)
+file_path = file_path[:file_path.rfind("\\") + 1]
+
+sys.path.insert(1, join(file_path, 'lvdm'))
+sys.path.insert(1, file_path)
 
 
 def tensor_to_binary_image_list(video_array):
@@ -120,7 +125,7 @@ def image_array_to_binary_video(video, fps, video_codec = "libx264", is_image_li
         for packet in stream.encode():
             container.mux(packet)
 
-    return binary_video.getbuffer()
+    return binary_video.getbuffer().tobytes()
 
 
 def postprocess_video(batch_tensors, return_video = False, fps = 10):
@@ -131,7 +136,7 @@ def postprocess_video(batch_tensors, return_video = False, fps = 10):
         video = torch.clamp(video.float(), -1., 1.)
         video = video.permute(2, 0, 1, 3, 4) # t,n,c,h,w
         frame_grids = [make_grid(framesheet, nrow = int(n_samples)) for framesheet in video] #[3, 1*h, n*w]
-        grid = torch.stack(frame_grids, dim=0) # stack in temporal dim [t, 3, n*h, w]
+        grid = torch.stack(frame_grids, dim = 0) # stack in temporal dim [t, 3, n*h, w]
         grid = (grid + 1.0) / 2.0
         grid = (grid * 255).to(torch.uint8).permute(0, 2, 3, 1)
         binary = tensor_to_binary_image_list(grid)
@@ -146,18 +151,18 @@ def weights_download(opt):
 
     REPO_ID = 'Doubiiu/ToonCrafter'
     filename_list = ['model.ckpt']
-    if not os.path.exists(opt["ckpt_path"][:opt["ckpt_path"].rfind("/")]):
-        os.makedirs(opt["ckpt_path"][:opt["ckpt_path"].rfind("/")])
+    if not exists(file_path + opt["ckpt_path"][:opt["ckpt_path"].rfind("/")]):
+        makedirs(file_path + opt["ckpt_path"][:opt["ckpt_path"].rfind("/")])
     for filename in filename_list:
-        local_file = opt["ckpt_path"]
-        if not os.path.exists(local_file):
-            hf_hub_download(repo_id = REPO_ID, filename = filename, local_dir = opt["ckpt_path"][:opt["ckpt_path"].rfind("/")], local_dir_use_symlinks = False)
+        local_file = file_path + opt["ckpt_path"]
+        if not exists(local_file):
+            hf_hub_download(repo_id = REPO_ID, filename = filename, local_dir = file_path + opt["ckpt_path"][:opt["ckpt_path"].rfind("/")], local_dir_use_symlinks = False)
 
 
 def get_latent_z_with_hidden_states(model, videos):
     b, c, t, h, w = videos.shape
     x = rearrange(videos, 'b c t h w -> (b t) c h w')
-    encoder_posterior, hidden_states = model.first_stage_model.encode(x, return_hidden_states=True)
+    encoder_posterior, hidden_states = model.first_stage_model.encode(x, return_hidden_states = True)
 
     hidden_states_first_last = []
     ### use only the first and last hidden states
@@ -177,7 +182,7 @@ def animate_images(first_binary_data, second_binary_data, prompt, opt, return_vi
     image2 = numpy.asarray(Image.open(io.BytesIO(second_binary_data)).convert("RGB"))
 
     seed_everything(opt["seed"])
-    resolution = (args["height"], args["width"]) #hw
+    resolution = (opt["height"], opt["width"]) #hw
     transform = transforms.Compose([
         transforms.Resize(min(resolution)),
         transforms.CenterCrop(resolution),
@@ -185,20 +190,20 @@ def animate_images(first_binary_data, second_binary_data, prompt, opt, return_vi
 
     torch.cuda.empty_cache()
     print('start:', prompt, time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
-    start = time.time()
+    #start = time.time()
     gpu_id = 0
 
-    config = OmegaConf.load(opt["config"])
+    config = OmegaConf.load(file_path + opt["config"])
     model_config = config.pop("model", OmegaConf.create())
-    model_config['params']['unet_config']['params']['use_checkpoint']=False   
+    model_config['params']['unet_config']['params']['use_checkpoint'] = False   
 
     model_list = []
     for gpu_id in range(gpu_num):
         model = instantiate_from_config(model_config)
         # model = model.cuda(gpu_id)
         print(opt["ckpt_path"])
-        assert os.path.exists(opt["ckpt_path"]), "Error: checkpoint Not Found!"
-        model = load_model_checkpoint(model, opt["ckpt_path"])
+        assert exists(file_path + opt["ckpt_path"]), "Error: checkpoint Not Found!"
+        model = load_model_checkpoint(model, file_path + opt["ckpt_path"])
         model.eval()
         model_list.append(model)
     model_list = model_list
@@ -249,7 +254,7 @@ def animate_images(first_binary_data, second_binary_data, prompt, opt, return_vi
         cond = {"c_crossattn": [imtext_cond], "fs": fs, "c_concat": [img_tensor_repeat]}
             
         ## inference
-        batch_samples = batch_ddim_sampling(model, cond, noise_shape, n_samples = opt["n_samples"], ddim_steps = opt["ddim_steps"], ddim_eta = opt["ddim_eta"], cfg_scale = opt["unconditional_guidance_scale"], hs = hs)
+        batch_samples = batch_ddim_sampling(model, cond, noise_shape, n_samples = opt["n_samples"], ddim_steps = opt["ddim_steps"], ddim_eta = opt["ddim_eta"], cfg_scale = opt["unconditional_guidance_scale"], hs = hs, verbode = opt["verbose"])
 
         ## remove the last frame
         if image2 is None:
@@ -267,7 +272,13 @@ def animate_images(first_binary_data, second_binary_data, prompt, opt, return_vi
     return binary_video
 
 
-if __name__ == "__main__":
+
+def gen_scenes_transition(prompt: str, frame_1: bytes, frame_2: bytes, return_video: bool = True) -> bytes:
+    '''
+    Функция генерации переходов между двумя кадрами для внешнего использования
+    Принимает описание в виде строки, первый кадр в виде изображения массива байт и второй кадр в виде изображения, представленного массивом байт
+    Возвращает mp4 видеофрагмент в виде массива байт
+    '''
 
     args = {
         "ckpt_path": "weights/model.ckpt", #checkpoint path
@@ -290,11 +301,20 @@ if __name__ == "__main__":
         "timestep_spacing": "uniform_trailing", #The way the timesteps should be scaled. Refer to Table 2 of the [Common Diffusion Noise Schedules and Sample Steps are Flawed](https://huggingface.co/papers/2305.08891) for more information.
         "guidance_rescale": 0.7, #guidance rescale in [Common Diffusion Noise Schedules and Sample Steps are Flawed](https://huggingface.co/papers/2305.08891)
         "perframe_ae": True, #if we use per-frame AE decoding, set it to True to save GPU memory, especially for the model of 576x1024
+        "verbose": True, #Выводить прогресс бар
 
         ## currently not support looping video and generative frame interpolation
         "loop": False, #generate looping videos or not
         "interp": False #generate generative frame interpolation or not
     }
+
+    binary = animate_images(first_binary_data = frame_1, second_binary_data = frame_2, prompt = prompt, opt = args, return_video = return_video)
+
+    return binary
+
+
+
+if __name__ == "__main__":
 
     with open("frame1.png", "rb") as f:
         first_binary_data = f.read()
@@ -302,14 +322,13 @@ if __name__ == "__main__":
     with open("frame2.png", "rb") as f:
         second_binary_data = f.read()
 
-    prompt = "an anime sketch"
+    prompt = "an anime scene"
 
     return_video = True #Возвращать видео или список изображений кадров. Если False - будет возвращён список изображений
 
     #weights_download(args) #Необязательная функция. Нужна для загрузки весов после установки
-    torch.cuda.empty_cache()
 
-    binary = animate_images(first_binary_data, second_binary_data, prompt, args, return_video = return_video)
+    binary = gen_scenes_transition(prompt = prompt, frame_1 = first_binary_data, frame_2 = second_binary_data, return_video = return_video)
 
     if return_video == False:
         for i, img in enumerate(binary):
